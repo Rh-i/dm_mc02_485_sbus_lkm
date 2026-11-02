@@ -18,7 +18,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Set the project name
-set(CMAKE_PROJECT_NAME DM_MC02)
+set(CMAKE_PROJECT_NAME dm_mc02_lkm)
 
 # Enable compile command to ease indexing with e.g. clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
@@ -66,22 +66,15 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     # Add user defined libraries
 )
 
+# stm32_framework：必须在 add_subdirectory(cmake/stm32cubemx) 之后接入（见 Middlewares/Third_Party/stm32-framework/README.md 第 1 节）
+add_subdirectory(Middlewares/Third_Party/stm32-framework)
+target_include_directories(stm32_framework PRIVATE user/board)  # 库自身也要看到 hardware_config.h
+target_link_libraries(${CMAKE_PROJECT_NAME} stm32_framework)
+target_compile_features(${CMAKE_PROJECT_NAME} PRIVATE cxx_std_20)
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE user/board user/app user/module)
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -u _printf_float)  # BspUartT::printf 打印浮点需要（nano.specs）
 
-
-##### User #####
-
-# Add User's folders to main
-add_subdirectory(User)
-
-# Add stm32cubemx to User_lib
-target_link_libraries(User_lib PRIVATE stm32cubemx)
-
-# Add User_lib to main
-target_link_libraries(${CMAKE_PROJECT_NAME}
-    User_lib
-)
-
-target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -u _printf_float)
-
-##### User #####
-
+# 业务代码：user/ 下的 .c / .cpp 自动收集（CONFIGURE_DEPENDS：增删业务文件后直接构建，不用改这里）
+file(GLOB_RECURSE USER_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/user/*.c ${CMAKE_CURRENT_SOURCE_DIR}/user/*.cpp)
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE ${USER_SOURCES})
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE user)

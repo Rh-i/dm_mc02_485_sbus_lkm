@@ -17,7 +17,8 @@
       "liveWatch": {
         "enabled": true,
         "samplesPerSecond": 20
-      }
+      },
+      "svdFile": "Flash/STM32H723.svd"
     },
     // JLink 还没测
     {

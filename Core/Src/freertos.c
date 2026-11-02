@@ -26,7 +26,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "api_main.h"
+#include "app_main.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -65,6 +65,25 @@ void StartDefaultTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
+/* Hook prototypes */
+void vApplicationStackOverflowHook(xTaskHandle xTask, char *pcTaskName);
+void vApplicationMallocFailedHook(void);
+
+/* USER CODE BEGIN 4 */
+void vApplicationStackOverflowHook(xTaskHandle xTask, char *pcTaskName)
+{
+  (void)xTask;
+  fault_on_stack_overflow(pcTaskName); /* 记下溢出的任务名后停机，不返回 */
+}
+/* USER CODE END 4 */
+
+/* USER CODE BEGIN 5 */
+void vApplicationMallocFailedHook(void)
+{
+  fault_on_malloc_failed(); /* 记下当前任务名后停机，不返回 */
+}
+/* USER CODE END 5 */
+
 /**
   * @brief  FreeRTOS initialization
   * @param  None
@@ -72,7 +91,7 @@ void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
   */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
-  all_init();
+  app_init(); /* 库入口 → 板级初始化 → 业务任务 → 放行，见 app_main.cpp */
   /* USER CODE END Init */
 
   /* USER CODE BEGIN RTOS_MUTEX */
