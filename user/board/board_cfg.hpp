@@ -59,28 +59,28 @@ inline BspCanT<16, 16> bsp_can3({.hfdcan = &hfdcan3, .name = "CAN3"}); ///< DJI 
 /* ==================== 外设：UART ==================== */
 
 // DMA 收发（放 .dma_buffer：DMA1/DMA2 访问不到 DTCM）
-inline __attribute__((section(".dma_buffer"))) BspUartT<uart_mode::dma, 128, 128> bsp_uart1(
+inline __attribute__((section(".dma_buffer.bsp_uart1"))) BspUartT<uart_mode::dma, 128, 128> bsp_uart1(
     {.huart = &huart1, .mode = UartDir::TxRx, .baudrate = 115200U}); ///< USART1
 
-inline __attribute__((section(".dma_buffer"))) BspUartT<uart_mode::dma, 128, 128> bsp_uart2(
+inline __attribute__((section(".dma_buffer.bsp_uart2"))) BspUartT<uart_mode::dma, 128, 128> bsp_uart2(
     {.huart = &huart2, .mode = UartDir::TxRx, .baudrate = 921600U}); ///< USART2（RS485，Emm_V5）
 
-inline __attribute__((section(".dma_buffer"))) BspUartT<uart_mode::dma, 128, 128> bsp_uart3(
+inline __attribute__((section(".dma_buffer.bsp_uart3"))) BspUartT<uart_mode::dma, 128, 128> bsp_uart3(
     {.huart = &huart3, .mode = UartDir::TxRx, .baudrate = 115200U}); ///< USART3（调试打印）
 
-inline __attribute__((section(".dma_buffer"))) BspUartT<uart_mode::dma, 128, 128> bsp_uart4(
+inline __attribute__((section(".dma_buffer.bsp_uart4"))) BspUartT<uart_mode::dma, 128, 128> bsp_uart4(
     {.huart = &huart4, .mode = UartDir::TxRx, .baudrate = 115200U}); ///< UART4
 
-inline __attribute__((section(".dma_buffer"))) BspUartT<uart_mode::dma, 128, 128> bsp_uart7(
+inline __attribute__((section(".dma_buffer.bsp_uart7"))) BspUartT<uart_mode::dma, 128, 128> bsp_uart7(
     {.huart = &huart7, .mode = UartDir::TxRx, .baudrate = 921600U}); ///< UART7
 
-inline __attribute__((section(".dma_buffer"))) BspUartT<uart_mode::it, 128, 128> bsp_uart8(
+inline __attribute__((section(".dma_buffer.bsp_uart8"))) BspUartT<uart_mode::it, 128, 128> bsp_uart8(
     {.huart = &huart8, .mode = UartDir::TxRx, .baudrate = 921600U}); ///< UART8（中断收发）
 
-inline __attribute__((section(".dma_buffer"))) BspUartT<uart_mode::dma, 128, 128> bsp_uart9(
+inline __attribute__((section(".dma_buffer.bsp_uart9"))) BspUartT<uart_mode::dma, 128, 128> bsp_uart9(
     {.huart = &huart9, .mode = UartDir::TxRx, .baudrate = 921600U}); ///< UART9
 
-inline __attribute__((section(".dma_buffer"))) BspUartT<uart_mode::dma, 128, 128> bsp_uart10(
+inline __attribute__((section(".dma_buffer.bsp_uart10"))) BspUartT<uart_mode::dma, 128, 128> bsp_uart10(
     {.huart = &huart10, .mode = UartDir::TxRx, .baudrate = 921600U}); ///< USART10
 
 // UART5 = SBUS：只收不发，中断接收（库里有 <it,128,32> 的显式实例化）
