@@ -17,14 +17,14 @@
 
 void board_init(void)
 {
-  // 计时基准 bsp_dwt 由 system_init() 内部 init()，这里不再重复初始化
+  // 计时基准bsp_dwt已经被库内定义，并且由 system_init()内部 init()，这里不再重复初始化
 
-  // CAN：DJI 电机挂 CAN3
+  // CAN
   configASSERT(bsp_can1.init() == Status::OK);
   configASSERT(bsp_can2.init() == Status::OK);
   configASSERT(bsp_can3.init() == Status::OK);
 
-  // 串口：DMA 收发（USART3 没配 DMA，走中断）+ UART5 中断收（SBUS）
+  // 串口
   configASSERT(bsp_uart1.init() == Status::OK);
   configASSERT(bsp_uart2.init() == Status::OK);
   configASSERT(bsp_uart3.init() == Status::OK);
@@ -35,7 +35,7 @@ void board_init(void)
   configASSERT(bsp_uart10.init() == Status::OK);
   configASSERT(bsp_uart_it5.init() == Status::OK);
 
-  // SPI：SPI1（原 LCD 接口）纯轮询；SPI2（陀螺仪）本版不初始化
+  // SPI
   configASSERT(bsp_spi1.init() == Status::OK);
 
   // 陀螺仪 SPI 暂不启用（启用时按 总线 → 两个片选 → 设备 的顺序取消注释）
@@ -44,7 +44,7 @@ void board_init(void)
   // configASSERT(bmi088_gyro_spi.init() == Status::OK);
   // configASSERT(imu_bmi088.init() == Status::OK);
 
-  // PWM 与按键
+  // PWM与按键
   configASSERT(bsp_pwm1.init() == Status::OK);
   configASSERT(bsp_pwm2.init() == Status::OK);
   configASSERT(bsp_pwm3.init() == Status::OK);
@@ -53,7 +53,7 @@ void board_init(void)
   configASSERT(bsp_pwm_buzzer.init() == Status::OK);
   configASSERT(key_user.init() == Status::OK);
 
-  // 设备：必须在对应外设之后（注册 CAN 节点 / 用已初始化的串口）
+  // 设备：必须在对应外设之后
   // configASSERT(r9ds.init() == Status::OK); // R9DS 暂时不用
   configASSERT(emm_group.init() == Status::OK);
   configASSERT(servo1.init() == Status::OK);

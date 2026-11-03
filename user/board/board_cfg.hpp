@@ -26,7 +26,6 @@
 #include "usart.h"
 
 #include "bsp_can.hpp"
-#include "bsp_dwt.hpp"
 #include "bsp_gpio.hpp"
 #include "bsp_key.hpp"
 #include "bsp_pwm.hpp"
@@ -47,7 +46,7 @@ void board_init(void);
 /* ==================== 外设：计时 ==================== */
 
 // bsp_dwt 由库内部初始化：实例定义在 stm32-framework/code/service/system.cpp，
-// 初始化在 code/service/system.cpp 的 system_init() 里。这里只包含头文件，直接调用即可
+// 初始化在 code/service/system.cpp 的 system_init() 里。工程中直接调用就行
 // （如 bsp_dwt.get_delta_s(&last)），不要再定义实例、不要再调 init()。
 
 /* ==================== */
