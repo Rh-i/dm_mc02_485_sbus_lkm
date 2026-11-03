@@ -3,7 +3,8 @@
  * @brief board_init()：把 board_cfg.hpp 里的实例逐个 init()（dm_mc02_485+sbus_lkm）
  *
  * @details 旧工程的 `bsp_init()` + `device_init()` 合并到这里：
- *          DWT → CAN → UART → PWM/GPIO/按键 → 设备（Emm_V5 / 舵机）。
+ *          CAN → UART → SPI → PWM/GPIO/按键 → 设备（Emm_V5 / 舵机）。
+ *          计时基准 `bsp_dwt` 已由库的 `system_init()` 初始化，这里不再处理。
  *          设备要放在对应外设 init() 之后（它们要注册 CanRxNode / CanTxNode 或用已初始化的串口）。
  *
  *          【失败就地停机】每行 configASSERT，fault_record 会记下行号，print_uart 能打出来。
@@ -16,15 +17,14 @@
 
 void board_init(void)
 {
-  // 计时基准：sys_task 用它算 10 ms 周期内的耗时，必须最先起来
-  configASSERT(bsp_dwt.init() == Status::OK);
+  // 计时基准 bsp_dwt 由 system_init() 内部 init()，这里不再重复初始化
 
   // CAN：DJI 电机挂 CAN3
   configASSERT(bsp_can1.init() == Status::OK);
   configASSERT(bsp_can2.init() == Status::OK);
   configASSERT(bsp_can3.init() == Status::OK);
 
-  // 串口：DMA 收发 + UART5 中断收（SBUS）
+  // 串口：DMA 收发（USART3 没配 DMA，走中断）+ UART5 中断收（SBUS）
   configASSERT(bsp_uart1.init() == Status::OK);
   configASSERT(bsp_uart2.init() == Status::OK);
   configASSERT(bsp_uart3.init() == Status::OK);
@@ -34,6 +34,15 @@ void board_init(void)
   configASSERT(bsp_uart9.init() == Status::OK);
   configASSERT(bsp_uart10.init() == Status::OK);
   configASSERT(bsp_uart_it5.init() == Status::OK);
+
+  // SPI：SPI1（原 LCD 接口）纯轮询；SPI2（陀螺仪）本版不初始化
+  configASSERT(bsp_spi1.init() == Status::OK);
+
+  // 陀螺仪 SPI 暂不启用（启用时按 总线 → 两个片选 → 设备 的顺序取消注释）
+  // configASSERT(bsp_spi2.init() == Status::OK);
+  // configASSERT(bmi088_acc_spi.init() == Status::OK);
+  // configASSERT(bmi088_gyro_spi.init() == Status::OK);
+  // configASSERT(imu_bmi088.init() == Status::OK);
 
   // PWM 与按键
   configASSERT(bsp_pwm1.init() == Status::OK);

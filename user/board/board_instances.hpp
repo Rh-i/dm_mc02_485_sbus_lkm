@@ -51,10 +51,12 @@
 /**
  * @brief SPI 实例列表
  *
- * 本工程 CubeMX 里开了 SPI1 / SPI2，但代码里还没有 `BspSpi` 实例（片选引脚已定义）。
- * 接 SPI 设备时：`board_cfg.hpp` 加 `BspSpi` + `BspSpiDevice`，这里改成
- *     `#define BSP_SPI_INSTANCES(X) X(bsp_spi_reg)`
+ * `bsp_spi1`：原 LCD 接口（TXONLY、纯轮询）。
+ * `bsp_spi2`：陀螺仪 BMI088 总线；当前**没有** `init()`，列在这里只是为了让库的
+ *             HAL SPI 回调能按句柄找到它（不 init 时回调本身是安全的空操作）。
  */
-#define BSP_SPI_INSTANCES(X) /* 无 */
+#define BSP_SPI_INSTANCES(X) \
+  X(bsp_spi1)                \
+  X(bsp_spi2)
 
 #endif // __BOARD_INSTANCES_HPP__

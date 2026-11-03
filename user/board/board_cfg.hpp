@@ -30,8 +30,10 @@
 #include "bsp_gpio.hpp"
 #include "bsp_key.hpp"
 #include "bsp_pwm.hpp"
+#include "bsp_spi.hpp"
 #include "bsp_uart.hpp"
 
+#include "device_bmi088.hpp"
 #include "device_buzzer.hpp"
 #include "device_emmv5_group.hpp"
 #include "device_servo.hpp"
@@ -44,7 +46,9 @@ void board_init(void);
 
 /* ==================== 外设：计时 ==================== */
 
-inline BspDwt bsp_dwt {}; ///< 内核 CYCCNT 计时，CPU 频率由 init() 从 RCC 读出
+// bsp_dwt 由库内部初始化：实例定义在 stm32-framework/code/service/system.cpp，
+// 初始化在 code/service/system.cpp 的 system_init() 里。这里只包含头文件，直接调用即可
+// （如 bsp_dwt.get_delta_s(&last)），不要再定义实例、不要再调 init()。
 
 /* ==================== */
 
@@ -71,10 +75,11 @@ inline __attribute__((section(".dma_buffer.bsp_uart2"))) BspUartT<uart_mode::dma
    .mode     = UartDir::TxRx,
    .baudrate = 921600U}); ///< USART2（RS485，Emm_V5）
 
-inline __attribute__((section(".dma_buffer.bsp_uart3"))) BspUartT<uart_mode::dma, 128, 128> bsp_uart3(
+// USART3 = RS485-3：PD8/PD9 + PB14 硬件 DE，CubeMX 没配 DMA，只能用中断收发
+inline BspUartT<uart_mode::it, 128, 128> bsp_uart3(
   {.huart    = &huart3,
    .mode     = UartDir::TxRx,
-   .baudrate = 115200U}); ///< USART3（调试打印）
+   .baudrate = 115200U}); ///< USART3（RS485-3）
 
 inline __attribute__((section(".dma_buffer.bsp_uart4"))) BspUartT<uart_mode::dma, 128, 128> bsp_uart4(
   {.huart    = &huart4,
@@ -109,6 +114,48 @@ inline BspUartT<uart_mode::it, 128, 32> bsp_uart_it5(
 
 /** @brief 调试打印：默认走 USART1 */
 #define print_uart(...) bsp_uart1.printf(__VA_ARGS__)
+
+/* ==================== */
+
+
+/* ==================== 外设：SPI ==================== */
+
+// SPI1：原 LCD 接口，CubeMX 配成 2LINES_TXONLY（只引出 SCK/MOSI），无 DMA、无中断。
+// 注意：库的传输接口固定走 HAL_SPI_TransmitReceive，TXONLY 模式下只能发不能收；
+//       要读回数据得在 CubeMX 改成 2LINES 并接上 MISO。
+inline BspSpi bsp_spi1(
+  {.hspi          = &hspi1,
+   .use_dma       = false,
+   .dma_threshold = 16U});
+
+// SPI2：陀螺仪 BMI088，4.3 MHz / CPOL=1 / CPHA=2Edge；CubeMX 没配 DMA，走轮询。
+// 本版陀螺仪不启用：bsp_spi2 与挂在它上面的片选 / 设备都只实例化、不 init()。
+inline BspSpi bsp_spi2(
+  {.hspi          = &hspi2,
+   .use_dma       = false,
+   .dma_threshold = 16U});
+
+// 片选：加速度计读寄存器时地址后要跟 1 个无效字节，陀螺仪不跟
+inline BspSpiDevice bmi088_acc_spi(
+  bsp_spi2,
+  {.cs_port    = GYRO_ACC_CS_GPIO_Port,
+   .cs_pin     = GYRO_ACC_CS_Pin,
+   .read_flag  = 0x80U,
+   .read_dummy = 1U});
+inline BspSpiDevice bmi088_gyro_spi(
+  bsp_spi2,
+  {.cs_port    = GYRO_GYRO_CS_GPIO_Port,
+   .cs_pin     = GYRO_GYRO_CS_Pin,
+   .read_flag  = 0x80U,
+   .read_dummy = 0U});
+
+/// BMI088 六轴 IMU：SPI2 上的两颗芯片（自动刷新 + VQF 姿态）。本版不 init()，
+/// 既不会建刷新任务，也不会注册数据就绪中断。
+inline DeviceBmi088 imu_bmi088(
+  bmi088_acc_spi,
+  bmi088_gyro_spi,
+  {.acc_range  = DeviceBmi088::AccRange::G24,
+   .gyro_range = DeviceBmi088::GyroRange::DPS2000});
 
 /* ==================== */
 
