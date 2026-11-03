@@ -1,6 +1,6 @@
 /**
  * @file board_instances.hpp
- * @brief 板级实例清单（dm_mc02_485+sbus_lkm）：库用 X-macro 按这里的名字展开
+ * @brief 板级实例清单（dm_mc02_485_sbus_lkm）：库用 X-macro 按这里的名字展开
  *
  * @details 库没有运行时登记表：HAL 回调、`sys_task` 巡检、`can_rx` / `can_tx` 都靠这组宏
  *          在编译期知道「板子上有哪几个实例」。只写名字，类型由 `decltype` 推。

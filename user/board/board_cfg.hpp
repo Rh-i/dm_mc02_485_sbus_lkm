@@ -1,6 +1,6 @@
 /**
  * @file board_cfg.hpp
- * @brief 板级实例配置（dm_mc02_485+sbus_lkm / DM-MC02）
+ * @brief 板级实例配置（dm_mc02_485_sbus_lkm / DM-MC02）
  *
  * @details 由旧工程的 `User/Bsp/bsp_cfg.hpp` + `User/Device/device_cfg.hpp` 合并而来：
  *          - 外设实例改成 C++20 `inline` 变量，定义只在这里出现一次

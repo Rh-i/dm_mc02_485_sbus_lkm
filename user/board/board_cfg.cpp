@@ -1,6 +1,6 @@
 /**
  * @file board_cfg.cpp
- * @brief board_init()：把 board_cfg.hpp 里的实例逐个 init()（dm_mc02_485+sbus_lkm）
+ * @brief board_init()：把 board_cfg.hpp 里的实例逐个 init()（dm_mc02_485_sbus_lkm）
  *
  * @details 旧工程的 `bsp_init()` + `device_init()` 合并到这里：
  *          CAN → UART → SPI → PWM/GPIO/按键 → 设备（Emm_V5 / 舵机）。
