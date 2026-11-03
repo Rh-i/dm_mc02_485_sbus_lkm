@@ -23,9 +23,6 @@
 /* CoreXY 任务间命令队列 */
 #include "corexy_protocol.hpp"
 
-/* 测试任务声明（开关见 app_test.hpp） */
-#include "app_test.hpp" // IWYU pragma: keep
-
 
 /**
  * @brief FreeRTOS后的相关初始化
@@ -56,39 +53,6 @@ void app_init(void)
   /* 4. 放行：板级有发送节点才创建 can_tx_task；随后置运行位。
    *    业务任务的入口第一句都是 sys_state.wait_running()，在这之后才会继续。 */
   system_start();
-
-#if APP_TEST_CAN_RECOVERY_ENABLED
-  can_recovery_test_init();
-  configASSERT(xTaskCreate(can_recovery_test_task, "can_fault", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
-#endif
-
-#if APP_TEST_ONLINE_CHECK_ENABLED
-  configASSERT(xTaskCreate(online_check_test_task, "online_test", 256, NULL, tskIDLE_PRIORITY + 3, NULL) == pdPASS);
-#endif
-
-#if APP_TEST_R9DS_ENABLED
-  configASSERT(xTaskCreate(r9ds_test_task, "r9ds", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
-#endif
-
-#if APP_TEST_SERVO_ENABLED
-  configASSERT(xTaskCreate(servo_test_task, "servo", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
-#endif
-
-#if APP_TEST_EMMV5_GROUP_ENABLED
-  configASSERT(xTaskCreate(emmv5_group_test_task, "emm_grp", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
-#endif
-
-#if APP_TEST_EMMV5_POS_PROBE_ENABLED
-  configASSERT(xTaskCreate(emmv5_pos_probe_test_task, "emm_pos", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
-#endif
-
-#if APP_TEST_UART_LOOPBACK_ENABLED
-  configASSERT(xTaskCreate(uart_loopback_test_task, "uart_loop", 768, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
-#endif
-
-#if APP_TEST_UART_STRESS_ENABLED
-  configASSERT(xTaskCreate(uart_stress_test_task, "uart_strs", 768, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
-#endif
 
   /* 按键任务：200 ms 轮询（短按/长按发不同提示音，优先级 +5） */
   configASSERT(xTaskCreate(key_task, "key", 256, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);

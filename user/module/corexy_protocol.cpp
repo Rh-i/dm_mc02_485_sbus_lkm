@@ -31,7 +31,7 @@ bool corexy_cmd_init()
 
 namespace
 {
-// ---------------- 收帧状态机 ----------------
+/* ==================== 收帧状态机 ==================== */
 
 uint8_t s_buf[cxy::PAYLOAD_MAX + 5U] = {}; ///< 头2 + CMD + LEN + 负载 + SUM
 size_t  s_len                        = 0U;
@@ -127,8 +127,8 @@ void dispatch(uint8_t cmd, const uint8_t *p, size_t len)
 }
 
 
-// ----------------
-// ---------------- 发帧 ----------------
+/* ==================== */
+/* ==================== 发帧 ==================== */
 
 ///< 发一帧到 bsp_uart1
 void send_frame(uint8_t cmd, const uint8_t *payload, size_t len)
@@ -270,4 +270,4 @@ void event(uint8_t evt, Status st, float x, float y)
 } // namespace cxy
 
 
-// ----------------
+/* ==================== */

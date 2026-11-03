@@ -98,7 +98,7 @@
 /* ==================== UART ==================== */
 
 /** @brief BspUart::init() 打开 UART 硬件 FIFO（16 字节）；0 = 保持 CubeMX 的设置 */
-#define UART_ENABLE_FIFO 1
+#define UART_ENABLE_FIFO 0
 
 /* 注意：`BspUart::printf()` 的等待上限目前是**库内固定值**（取锁 10 ms / 入队 10 ms，
  * 见 code/bsp/bsp_uart.cpp），没有做成可调宏；调试打印开关 UART_PRINT_ENABLE 也在

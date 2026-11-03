@@ -31,7 +31,7 @@ template <typename Group>
 class CorexyT
 {
 public:
-  // ---------------- 常量 ----------------
+  /* ==================== 常量 ==================== */
   static constexpr uint8_t ZERO_CONFIRM   = 2U; ///< 连续多少次读数合格才算原点有效
   static constexpr uint8_t ARRIVE_CONFIRM = 2U; ///< 连续多少拍「两台读回的位置都正确且不变」才算到位
 
@@ -48,8 +48,8 @@ public:
   static constexpr float    OVERRUN_MM       = 2.0f;  ///< 段内超出预期行程多少 mm 就停机
   static constexpr size_t   SEG_MAX          = 2U;    ///< 最多两段：45° 段 + 轴向段
   static constexpr float    ZERO_TOL_MM      = 0.50f; ///< 原点复核窗口 mm
-  // ----------------
-  // ---------------- 类型与配置 ----------------
+  /* ==================== */
+  /* ==================== 类型与配置 ==================== */
 
   /** @brief 轴对齐矩形（mm），聚合体：可按 `{x0, y0, x1, y1}` 或指定初始化器写 */
   struct Rect
@@ -110,8 +110,8 @@ public:
     MoveMode  move_mode  = MoveMode::Position; ///< 分段下发模式
   };
 
-  // ----------------
-  // ---------------- 构造与析构 ----------------
+  /* ==================== */
+  /* ==================== 构造与析构 ==================== */
 
   /**
    * @brief 构造函数
@@ -126,8 +126,8 @@ public:
   CorexyT(CorexyT &&)                 = delete;
   CorexyT &operator=(CorexyT &&)      = delete;
 
-  // ----------------
-  // ---------------- 公有接口 ----------------
+  /* ==================== */
+  /* ==================== 公有接口 ==================== */
 
   /**
    * @brief 校验配置，复位状态机
@@ -210,8 +210,8 @@ public:
    */
   void update(uint32_t timeout_ms = 0U);
 
-  // ----------------
-  // ---------------- 查询接口 ----------------
+  /* ==================== */
+  /* ==================== 查询接口 ==================== */
 
   ///< 当前状态
   State state() const
@@ -297,9 +297,9 @@ public:
     return (index < 2U) ? _last_delta[index] : 0;
   }
 
-  // ----------------
+  /* ==================== */
 private:
-  // ---------------- 内部常量 ----------------
+  /* ==================== 内部常量 ==================== */
 
   // 几何参数固定为 ZDT（张大头）闭环步进：2GT 2 mm × 20 齿 = 40 mm/圈；
   // 驱动器 16 细分 = 3200 脉冲/圈；编码器一圈 65536 counts。
@@ -311,8 +311,8 @@ private:
   static constexpr float PULSES_PER_MM    = static_cast<float>(PULSES_PER_REV) / MM_PER_REV;      ///< 80 脉冲/mm
   static constexpr float COUNTS_PER_MM    = static_cast<float>(COUNTS_PER_REV) / MM_PER_REV;      ///< 1638.4 counts/mm
   static constexpr float COUNTS_PER_PULSE = static_cast<float>(COUNTS_PER_REV) / PULSES_PER_REV; ///< 20.48 counts/脉冲
-  // ----------------
-  // ---------------- 私有实现 ----------------
+  /* ==================== */
+  /* ==================== 私有实现 ==================== */
 
   /**
    * @brief 把目标拆成 1~2 段（45° 段 + 轴向段）
@@ -361,8 +361,8 @@ private:
   ///< 浮点合法（排除 NaN / Inf）
   static bool _finite(float v);
 
-  // ----------------
-  // ---------------- 成员变量 ----------------
+  /* ==================== */
+  /* ==================== 成员变量 ==================== */
 
   Config  _cfg;               ///< 配置（速度可在运行期改）
   bool    _inited    = false; ///< init() 是否成功
@@ -398,7 +398,7 @@ private:
   uint16_t _quick_rpm[2]   = {0U, 0U};       ///< 已下发的转速
   uint8_t  _quick_acc[2]   = {0U, 0U};       ///< 已下发的加速度
 
-  // ----------------
+  /* ==================== */
 };
 
 #endif // __MODULE_COREXY_HPP__

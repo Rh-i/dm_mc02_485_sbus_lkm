@@ -1,9 +1,9 @@
 /**
  * @file board_cfg.cpp
- * @brief board_init()：把 board_cfg.hpp 里的实例逐个 init()（dm_mc02_lkm）
+ * @brief board_init()：把 board_cfg.hpp 里的实例逐个 init()（dm_mc02_485+sbus_lkm）
  *
  * @details 旧工程的 `bsp_init()` + `device_init()` 合并到这里：
- *          DWT → CAN → UART → PWM/GPIO/按键 → 设备（R9DS / Emm_V5 / 舵机 / DJI 电机）。
+ *          DWT → CAN → UART → PWM/GPIO/按键 → 设备（Emm_V5 / 舵机）。
  *          设备要放在对应外设 init() 之后（它们要注册 CanRxNode / CanTxNode 或用已初始化的串口）。
  *
  *          【失败就地停机】每行 configASSERT，fault_record 会记下行号，print_uart 能打出来。
@@ -45,13 +45,10 @@ void board_init(void)
   configASSERT(key_user.init() == Status::OK);
 
   // 设备：必须在对应外设之后（注册 CAN 节点 / 用已初始化的串口）
-  configASSERT(r9ds.init() == Status::OK);
+  // configASSERT(r9ds.init() == Status::OK); // R9DS 暂时不用
   configASSERT(emm_group.init() == Status::OK);
   configASSERT(servo1.init() == Status::OK);
   configASSERT(servo2.init() == Status::OK);
   configASSERT(servo3.init() == Status::OK);
   configASSERT(servo4.init() == Status::OK);
-
-  configASSERT(gm6020_1.init() == Status::OK);
-  configASSERT(gm6020_6.init() == Status::OK);
 }

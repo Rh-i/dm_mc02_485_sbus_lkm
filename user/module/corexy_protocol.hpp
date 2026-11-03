@@ -24,7 +24,7 @@
 #include <stdint.h>
 
 
-// ---------------- 命令（队列元素，取值 = 协议命令码） ----------------
+/* ==================== 命令（队列元素，取值 = 协议命令码） ==================== */
 
 /** @brief 上位机可下发的命令；枚举值直接就是帧里的 CMD */
 enum class CorexyCmdType : uint8_t
@@ -59,8 +59,8 @@ extern QueueHandle_t corexy_cmd_queue;
 bool corexy_cmd_init();
 
 
-// ----------------
-// ---------------- 帧 ----------------
+/* ==================== */
+/* ==================== 帧 ==================== */
 
 namespace cxy
 {
@@ -92,6 +92,6 @@ void event(uint8_t evt, Status st, float x, float y);
 } // namespace cxy
 
 
-// ----------------
+/* ==================== */
 
 #endif // __COREXY_PROTOCOL_HPP__

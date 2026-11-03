@@ -50,14 +50,17 @@
         "--query-driver=${env:CUBE_BUNDLE_PATH}/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-g++*"
     ],
     "cmake.cmakePath": "cmake",
+    // 源码用 `/* ==================== 标题 ==================== */` … `/* ==================== */`
+    // 分区（等号固定 20 个，必须成对、不嵌套），见 stm32-framework/docs/编辑器配置.md。
+    // `{20}` 而不是 `{20,}`：19 / 21 个等号都不匹配，标题不会混进 `=`。
     "outlinePlus.regionBoundaryPatternByLanguageId": {
         "c": {
-            "startRegex": "^\\s*//+\\s*-{16}\\s*(.+?)\\s*-{16}\\s*$",
-            "endRegex": "^\\s*//+\\s*-{16}\\s*$"
+            "startRegex": "^\\s*/\\* ={20} (.+) ={20} \\*/\\s*$",
+            "endRegex": "^\\s*/\\* ={20} \\*/\\s*$"
         },
         "cpp": {
-            "startRegex": "^\\s*//+\\s*-{16}\\s*(.+?)\\s*-{16}\\s*$",
-            "endRegex": "^\\s*//+\\s*-{16}\\s*$"
+            "startRegex": "^\\s*/\\* ={20} (.+) ={20} \\*/\\s*$",
+            "endRegex": "^\\s*/\\* ={20} \\*/\\s*$"
         }
     }
 }

@@ -18,7 +18,7 @@
 #include "board_cfg.hpp"
 
 
-// ---------------- 函数声明 ----------------
+/* ==================== 函数声明 ==================== */
 
 /**
  * @brief 初始化模块层
@@ -28,8 +28,8 @@
  */
 void module_init(void);
 
-// ----------------
-// ---------------- 全局声明 ----------------
+/* ==================== */
+/* ==================== 全局声明 ==================== */
 
 /// CoreXY 模块类型（绑定到 emm_group 的具体电机组类型）
 using CorexyModule = CorexyT<decltype(emm_group)>;
@@ -37,5 +37,5 @@ using CorexyModule = CorexyT<decltype(emm_group)>;
 /// CoreXY 平面机构：emm_group 上的地址 1、2，理论限位 190×200，安全限位 (1,1)~(189,199)
 extern CorexyModule corexy;
 
-// ----------------
+/* ==================== */
 #endif // __MODULE_CFG_HPP__
