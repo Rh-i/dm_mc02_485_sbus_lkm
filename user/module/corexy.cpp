@@ -136,22 +136,16 @@ Status CorexyT<Group>::zero_here()
     return st2;
   }
 
-  // 清零命令没有应答，先按“位置已为 0”记账；复核由调用方读 position() 完成
-  _cur_counts[0] = 0;
-  _cur_counts[1] = 0;
-  _cmd_target[0] = 0;
-  _cmd_target[1] = 0;
-  _arrive_ok     = 0U;
+  // 清零无应答：先按“位置为 0”记账，原点由 update() 读数复核（复核前禁止运动）
+  _cur_counts[0] = _cur_counts[1] = 0;
+  _cmd_target[0] = _cmd_target[1] = 0;
   _pos           = Point(0.0f, 0.0f);
   _target        = Point(0.0f, 0.0f);
-  _seg_count     = 0U;
-  _seg_index     = 0U;
+  _seg_count     = _seg_index = 0U;
+  _arrive_ok     = _zero_ok = 0U;
   _state         = State::Idle;
   _last_error    = Status::OK;
-
-  // 清零命令没有应答，必须靠后续读数复核；复核前禁止运动
-  _armed   = false;
-  _zero_ok = 0U;
+  _armed         = false;
 
   return Status::OK;
 }
@@ -176,7 +170,7 @@ Status CorexyT<Group>::move_to(Point p)
     return Status::NOT_INIT;
   }
 
-  // 目标只按安全限位放行：这里到不了理论矩形的边上，也就不会撞
+  // 目标只按安全限位放行：到不了理论矩形的边上，也就不会撞
   if (!_inside(p, _cfg.safe))
   {
     return Status::BAD_ARG;
@@ -201,6 +195,7 @@ Status CorexyT<Group>::move_to(Point p)
 
   _target    = p;
   _seg_index = 0U;
+  _seg_retried = false;
 
   const Status st = _send_segment(0U);
   if (st != Status::OK)
@@ -259,35 +254,6 @@ Status CorexyT<Group>::set_speed(uint16_t rpm, uint8_t acc)
   return Status::OK;
 }
 
-/** @brief 切换 0xFD / 0xF1+0xFC 下发模式；运动进行中返回 BUSY */
-template <typename Group>
-Status CorexyT<Group>::set_move_mode(MoveMode mode)
-{
-  if (!_inited)
-  {
-    return Status::NOT_INIT;
-  }
-
-  // 分段进行中改模式：两台的参数与指令会不一致，先让它走完
-  if (_state == State::Moving)
-  {
-    return Status::BUSY;
-  }
-
-  if (mode == _cfg.move_mode)
-  {
-    return Status::OK;
-  }
-
-  _cfg.move_mode = mode;
-
-  // 换模式后驱动器里的 0xF1 参数不一定还可靠，下一段重新下发
-  _quick_valid[0] = false;
-  _quick_valid[1] = false;
-
-  return Status::OK;
-}
-
 /** @brief 周期更新：读两台位置 → 保护检查 → 到位判定 → 发下一段 / 结束 */
 template <typename Group>
 void CorexyT<Group>::update(uint32_t timeout_ms)
@@ -297,16 +263,12 @@ void CorexyT<Group>::update(uint32_t timeout_ms)
     return;
   }
 
-  // 0. 先把串口里攒的字节解析成扫描器结果（timeout_ms = 0 则纯非阻塞）
-  //    返回值是「到位帧」位图，本模块不用：驱动器没开该回报，判到位只看 0x36 读数。
+  // 驱动器没开到位回报：返回值（到位帧位图）不用，判到位只看 0x36 读数
   (void)_cfg.group->update(timeout_ms);
 
   const TickType_t now = xTaskGetTickCount();
 
-  // 1. 读两台位置：**一次一台**，读到应答再发下一条查询。
-  //    - MMCL / 使能 / 清零 / 停止这类无应答命令发出后，必须隔 BUS_GAP_MS 才能开始读；
-  //    - 两条查询之间同样留 BUS_GAP_MS，半双工下不能背靠背发；
-  //    - 不动的电机也要读：它的“停在原地”本身就是本段执行成功的证据。
+  // 1. 读两台位置：**一次一台**，两条查询之间留 BUS_GAP_MS；不动的电机也要读（“没动”也是证据）
   bool read_ok = false;
   bool still   = false;
 
@@ -336,12 +298,9 @@ void CorexyT<Group>::update(uint32_t timeout_ms)
 
     read_ok = ok1 && ok2;
 
-    // “位置不再变化”：与上一次成功读到的 counts 比。
-    // arrive_tol 的窗口在减速尾巴上就成立了，此时电机还在走；
-    // 只有相邻两次读回几乎一样（≤ STILL_COUNTS）才说明真的停住了。
-    still = ok1 && ok2 && _prev_ok[0] && _prev_ok[1] &&
-            ((c1 - _prev_counts[0]) <= STILL_COUNTS) && ((c1 - _prev_counts[0]) >= -STILL_COUNTS) &&
-            ((c2 - _prev_counts[1]) <= STILL_COUNTS) && ((c2 - _prev_counts[1]) >= -STILL_COUNTS);
+    // 到位窗口在减速尾巴上就成立，只有相邻两次读回几乎一样才说明真停住
+    still = read_ok && _prev_ok[0] && _prev_ok[1] && (std::abs(c1 - _prev_counts[0]) <= STILL_COUNTS) &&
+            (std::abs(c2 - _prev_counts[1]) <= STILL_COUNTS);
 
     if (ok1)
     {
@@ -364,22 +323,8 @@ void CorexyT<Group>::update(uint32_t timeout_ms)
     const bool near_zero = (_pos.x > -ZERO_TOL_MM) && (_pos.x < ZERO_TOL_MM) &&
                            (_pos.y > -ZERO_TOL_MM) && (_pos.y < ZERO_TOL_MM);
 
-    if (near_zero)
-    {
-      if (_zero_ok < 0xFFU)
-      {
-        _zero_ok++;
-      }
-
-      if (_zero_ok >= ZERO_CONFIRM)
-      {
-        _armed = true;
-      }
-    }
-    else
-    {
-      _zero_ok = 0U;
-    }
+    _zero_ok = near_zero ? ((_zero_ok < 0xFFU) ? static_cast<uint8_t>(_zero_ok + 1U) : _zero_ok) : 0U;
+    _armed   = (_zero_ok >= ZERO_CONFIRM);
   }
 
   // 2. 只有移动中才需要推进状态机
@@ -388,81 +333,63 @@ void CorexyT<Group>::update(uint32_t timeout_ms)
     return;
   }
 
-  // 3.1 防撞：实测坐标越出理论限位就停机（安全限位只是目标校验，不在这里停）
-  // 容差用 OVERRUN_MM：正常跟随误差（减速过冲、两台微小不同步）不应触发，
-  // 只有真跑飞才拦。包围盒太紧时，靠近 y=0 的段会被 1 mm 级跟随误差误杀。
-  const float margin = OVERRUN_MM;
-  const Rect  guard(_cfg.theory.x0 - margin, _cfg.theory.y0 - margin, _cfg.theory.x1 + margin, _cfg.theory.y1 + margin);
-
-  if (!_inside(_pos, guard))
+  // 3.1 防撞：实测坐标越出理论限位就停机（容差 OVERRUN_MM，正常跟随误差不触发）
+  const float m = OVERRUN_MM;
+  if (!_inside(_pos, Rect(_cfg.theory.x0 - m, _cfg.theory.y0 - m, _cfg.theory.x1 + m, _cfg.theory.y1 + m)))
   {
     _fault(Status::BAD_ARG);
     return;
   }
 
-  // 3.1b 轴级保护：偏离本段预期行程（含反向）超过 OVERRUN_MM 立即停机。
-  // 能盖住“目标被误解析成极大值 / 单台电机跑飞 / 某轴反向”的情况。
+  // 3.1b 轴级保护：本段不该动的轴有明显位移，或偏离预期行程超过容差，都判跑飞
+  const int32_t overrun = static_cast<int32_t>(OVERRUN_MM * COUNTS_PER_MM) + 64;
+
+  for (size_t i = 0U; i < 2U; i++)
   {
-    const int32_t overrun = static_cast<int32_t>(OVERRUN_MM * COUNTS_PER_MM) + 64;
+    const int32_t d     = _cur_counts[i] - _seg_from[i];
+    const int32_t moved = d * _seg_dir[i];
 
-    for (size_t i = 0U; i < 2U; i++)
+    if ((_seg_dir[i] == 0) ? ((d > overrun) || (d < -overrun)) : ((moved < -overrun) || (moved > (_seg_travel[i] + overrun))))
     {
-      if (_seg_dir[i] == 0)
-      {
-        // 本段不应动：只要有明显位移就说明被别的帧带走了
-        const int32_t stray = _cur_counts[i] - _seg_from[i];
-        if (stray > overrun || stray < -overrun)
-        {
-          _fault(Status::IO_ERROR);
-          return;
-        }
-        continue;
-      }
-
-      const int32_t traveled = (_cur_counts[i] - _seg_from[i]) * _seg_dir[i];
-
-      if (traveled < -overrun || traveled > (_seg_travel[i] + overrun))
-      {
-        _fault(Status::IO_ERROR);
-        return;
-      }
+      _fault(Status::IO_ERROR);
+      return;
     }
   }
 
-  // 3.2 到位判定：这一拍两台都读到了位置（read_ok）、都在目标窗口内（in_window），
-  //     并且相邻两次读回的位置几乎一样（still，证明已经停稳，不是减速尾巴）。
-  const int32_t tol_counts = static_cast<int32_t>(_cfg.arrive_tol * COUNTS_PER_MM);
+  // 3.2 到位：本拍两台都读到 + 都在窗口内 + 相邻两次读回几乎一样（已停稳，不是减速尾巴）
+  const int32_t tol = static_cast<int32_t>(_cfg.arrive_tol * COUNTS_PER_MM);
 
-  const int32_t err1 = _cur_counts[0] - _cmd_target[0];
-  const int32_t err2 = _cur_counts[1] - _cmd_target[1];
+  const bool arrived = read_ok && still && (std::abs(_cur_counts[0] - _cmd_target[0]) <= tol) &&
+                       (std::abs(_cur_counts[1] - _cmd_target[1]) <= tol);
 
-  const bool in_window = (err1 <= tol_counts) && (err1 >= -tol_counts) &&
-                         (err2 <= tol_counts) && (err2 >= -tol_counts);
-
-  const bool arrived = read_ok && in_window && still;
-
-  // 连续 ARRIVE_CONFIRM 拍都成立才放行：单拍可能正好落在减速段末尾，
-  // 读数刚进窗口、驱动器还没停稳，此刻接着发下一条 MMCL 会叠在未完成的运动上。
-  if (arrived)
-  {
-    if (_arrive_ok < ARRIVE_CONFIRM)
-    {
-      _arrive_ok++;
-    }
-  }
-  else
-  {
-    _arrive_ok = 0U;
-  }
+  // 连续 ARRIVE_CONFIRM 拍都成立才放行（单拍可能正好在减速段末尾）
+  _arrive_ok = arrived ? ((_arrive_ok < ARRIVE_CONFIRM) ? static_cast<uint8_t>(_arrive_ok + 1U) : _arrive_ok) : 0U;
 
   bool advance = (_arrive_ok >= ARRIVE_CONFIRM);
 
-  // 段兜底：SEG_DONE_MS 还没判到位，就按“已经到位”处理（用户要求，不算故障）。
-  // 跳下一段前先停一次，否则新命令会叠在没跑完的运动上，两台立刻不同步。
+  // 段兜底：超时先停。落在窗口内才算到位；误差超窗口说明命令没执行完，
+  // 按实测位置补发一次本段（只补一次），仍不到位就进 Fault，绝不静默当成功。
   if (!advance && ((now - _seg_tick) >= pdMS_TO_TICKS(SEG_DONE_MS)))
   {
     _stop_motors();
-    advance = true;
+
+    const bool off = (std::abs(_cur_counts[0] - _cmd_target[0]) > tol) || (std::abs(_cur_counts[1] - _cmd_target[1]) > tol);
+
+    if (!off)
+    {
+      advance = true;
+    }
+    else if (!_seg_retried)
+    {
+      _seg_retried = true;
+      _send_segment(_seg_index); // 内部按当前实测重算增量，只补剩余距离
+      return;
+    }
+    else
+    {
+      _fault(Status::TIMEOUT);
+      return;
+    }
   }
 
   if (!advance)
@@ -479,9 +406,10 @@ void CorexyT<Group>::update(uint32_t timeout_ms)
     return;
   }
 
-  // 下一段：_send_segment 内部先静默 BUS_GAP_MS 再发 MMCL，
+  // 下一段：_send_segment 内部先静默 BUS_GAP_MS 再发命令，
   // 发完把 _read_hold 推到 +BUS_GAP_MS，之后才允许读位置。
   _seg_index++;
+  _seg_retried = false;
 
   const Status st = _send_segment(_seg_index);
   if (st != Status::OK)
@@ -510,10 +438,7 @@ void CorexyT<Group>::_build_segments(Point goal)
   }
 
   // 纯轴向或纯 45°：一段走完
-  const bool axis_only = (adx < 1.0e-3f) || (ady < 1.0e-3f);
-  const bool diag_only = std::fabs(adx - ady) < 1.0e-3f;
-
-  if (axis_only || diag_only)
+  if ((adx < 1.0e-3f) || (ady < 1.0e-3f) || (std::fabs(adx - ady) < 1.0e-3f))
   {
     _seg_end[0] = goal;
     _seg_count  = 1U;
@@ -541,9 +466,7 @@ Status CorexyT<Group>::_send_segment(size_t index)
 
   const int32_t end_pulse[2] = {_pulses(b, 0U), _pulses(b, 1U)};
 
-  // 先把还没取走的新应答收掉：增量基准必须是**最新实测值**。
-  // 段起点在上一段到位之后，两台都已静止，此时读数可靠；
-  // 拿不到新应答则沿用上一拍读数（受读周期限制，最多十几 ms 前）。
+  // 段起点用**最新实测值**；拿不到新应答就沿用上一拍读数
   int32_t latest = 0;
   if (_cfg.group->get_position(_cfg.addr1, latest))
   {
@@ -554,19 +477,15 @@ Status CorexyT<Group>::_send_segment(size_t index)
     _cur_counts[1] = latest;
   }
 
-  // 相对模式以“上一输入目标”为基准，但基准必须用实测值：
-  // 指令目标与实际位置一旦脱节（故障/停止/外部推动），继续用书签值会让下一段增量为 0。
+  // 增量基准用实测 counts：指令目标一旦与实际脱节，用书签值会让下一段增量为 0
   const int32_t now_pulse[2] = {
     static_cast<int32_t>(std::lround(static_cast<double>(_cur_counts[0]) / static_cast<double>(COUNTS_PER_PULSE))),
     static_cast<int32_t>(std::lround(static_cast<double>(_cur_counts[1]) / static_cast<double>(COUNTS_PER_PULSE)))};
 
   // 协议字段是「正幅值 + 方向字节」：用相对模式下发增量，脉冲字段永远为正
-  const int32_t delta1 = end_pulse[0] - now_pulse[0];
-  const int32_t delta2 = end_pulse[1] - now_pulse[1];
-
-  const int32_t mag1 = (delta1 < 0) ? -delta1 : delta1;
-  const int32_t mag2 = (delta2 < 0) ? -delta2 : delta2;
-  const int32_t max_mag = (mag1 > mag2) ? mag1 : mag2;
+  const int32_t delta[2] = {end_pulse[0] - now_pulse[0], end_pulse[1] - now_pulse[1]};
+  const int32_t mag[2]   = {std::abs(delta[0]), std::abs(delta[1])};
+  const int32_t max_mag  = (mag[0] > mag[1]) ? mag[0] : mag[1];
 
   if (max_mag == 0)
   {
@@ -588,109 +507,88 @@ Status CorexyT<Group>::_send_segment(size_t index)
   }
 
   const uint8_t addr[2] = {_cfg.addr1, _cfg.addr2};
+  uint32_t      rpm[2]  = {0U, 0U};
 
-  // 半双工总线：从“静默等待”到“整帧发出”中间不能插任何查询
-  // RS485 半双工：上一条 0x36 查询的应答可能还在回传。若紧接着发 MMCL，
-  // 驱动器正处于“自己发送、收不进字节”的状态，整帧会被丢掉（表现为命令不执行）。
-  // 所以发命令前先静默一段，静默期内也不发任何查询。
-  _quiet();
-
-  // 一条 MMCL 总帧带 1~2 条子命令（不动的电机不发子命令）；发出后只读位置，两台都到位（或 SEG_DONE_MS 兜底）后才发下一段
-  _cfg.group->multi_clear();
-
+  // 先算本段目标与速度。快速位置模式下 0xF1 参数帧**必须单独成帧先发**：
+  // 和 0xFC 挤在同一条 MMCL 里，驱动器只认最后一条子命令，参数会丢，速度就退回默认值。
   for (size_t i = 0U; i < 2U; i++)
   {
-    const int32_t delta = (i == 0U) ? delta1 : delta2;
+    // 到位目标 = 段起点实测 + 指令增量（counts）：用增量判段，零位差常数也判得准
+    _cmd_target[i] = _cur_counts[i] + static_cast<int32_t>(std::lround(static_cast<double>(delta[i]) * static_cast<double>(COUNTS_PER_PULSE)));
 
-    // 到位目标 = 本段起点实测 counts + 本段指令增量（counts）。
-    // 用增量而不是“世界上标 × counts/脉冲”：编码器零位与软件原点即使差一个常数，
-    // “这一段有没有走完”依然能判准；不动的电机目标就等于起点，自然落在窗口内。
-    _cmd_target[i] = _cur_counts[i] + static_cast<int32_t>(std::lround(static_cast<double>(delta) * static_cast<double>(COUNTS_PER_PULSE)));
+    // 本段预期：起点取当前实测，方向与行程由指令增量得到
+    _seg_from[i]   = _cur_counts[i];
+    _seg_dir[i]    = (delta[i] > 0) ? 1 : ((delta[i] < 0) ? -1 : 0);
+    _seg_travel[i] = static_cast<int32_t>(std::lround(static_cast<double>(mag[i]) * static_cast<double>(COUNTS_PER_PULSE)));
 
-    if (delta == 0)
+    if (delta[i] == 0)
     {
       _last_delta[i] = 0;
       continue; // 本段这台不动：45° 对角只有一台参与
     }
 
-    const int32_t mag = (delta < 0) ? -delta : delta;
-
     // 速度按脉冲数分摊，两台同时到达；acc 相同即可保持加速段比例
-    uint32_t rpm = static_cast<uint32_t>(std::lround(static_cast<double>(_cfg.rpm) * static_cast<double>(mag) / static_cast<double>(max_mag)));
-    if (rpm < 1U)
-    {
-      rpm = 1U;
-    }
-    if (rpm > 5000U)
-    {
-      rpm = 5000U;
-    }
+    rpm[i] = static_cast<uint32_t>(std::lround(static_cast<double>(_cfg.rpm) * static_cast<double>(mag[i]) / static_cast<double>(max_mag)));
+    rpm[i] = (rpm[i] < 1U) ? 1U : ((rpm[i] > 5000U) ? 5000U : rpm[i]);
 
-    Status qs = Status::OK;
-
-    if (_cfg.move_mode == MoveMode::Quick)
+    // 参数变了（或首次）先单独发一帧 0xF1，等它生效后再发 0xFC
+    if (!_quick_valid[i] || (_quick_rpm[i] != static_cast<uint16_t>(rpm[i])) || (_quick_acc[i] != _cfg.acc))
     {
-      // 参数变了（或首次）才补发 0xF1，其余情况直接 0xFC
-      if (!_quick_valid[i] || (_quick_rpm[i] != static_cast<uint16_t>(rpm)) || (_quick_acc[i] != _cfg.acc))
+      _quick_valid[i] = false;
+      _quiet();
+
+      const Status ps = _cfg.group->set_quick_position_params(addr[i], static_cast<uint16_t>(rpm[i]), _cfg.acc,
+                                                             emmv5::PositionMode::Relative);
+      if (ps != Status::OK)
       {
-        qs = _cfg.group->queue_quick_position_params(addr[i], static_cast<uint16_t>(rpm), _cfg.acc,
-                                                     emmv5::PositionMode::Relative);
-        if (qs == Status::OK)
-        {
-          _quick_valid[i] = true;
-          _quick_rpm[i]   = static_cast<uint16_t>(rpm);
-          _quick_acc[i]   = _cfg.acc;
-        }
+        _cfg.group->multi_clear();
+        return ps;
       }
 
-      // 0xFC 没有方向字节：靠 delta 的符号表方向
-      if (qs == Status::OK)
-      {
-        qs = _cfg.group->queue_quick_position(addr[i], delta);
-      }
+      // 0xF1 只是“参数写入”，需要一短段总线静默/稳定时间后再发 0xFC 真正执行。
+      // 不等待时，驱动器可能还没把新速度/加速度落盘，只有一轴收到有效命令，
+      // 于是看起来像“半程停住”，例如 0,0 → 100,50 只跑到 75,25。
+      vTaskDelay(pdMS_TO_TICKS(BUS_GAP_MS));
+
+      _quick_valid[i] = true;
+      _quick_rpm[i]   = static_cast<uint16_t>(rpm[i]);
+      _quick_acc[i]   = _cfg.acc;
+    }
+  }
+
+  Status st = Status::OK;
+
+  // 快速位置逐台独立成帧：MMCL 里同帧带两条 0xFC 时，驱动器只执行其中一条
+  for (size_t i = 0U; (i < 2U) && (st == Status::OK); i++)
+  {
+    if (delta[i] == 0)
+    {
+      continue;
+    }
+
+    _quiet(); // 0xFC 无应答，发前静默
+    st = _cfg.group->set_quick_position(addr[i], delta[i]);
+
+    if (st == Status::OK)
+    {
+      _last_delta[i] = delta[i];
     }
     else
     {
-      // 0xFD：相对模式 + 方向字节 + 正幅值
-      const emmv5::Direction dir = (delta > 0) ? emmv5::Direction::CW : emmv5::Direction::CCW;
-      qs = _cfg.group->queue_position(addr[i], dir, static_cast<uint16_t>(rpm), _cfg.acc, mag,
-                                      emmv5::PositionMode::Relative);
+      _quick_valid[i] = false; // 参数帧已发过，下次重发
     }
-
-    if (qs != Status::OK)
-    {
-      // 参数帧已经发出去的，下次必须重发；直接作废缓存
-      _quick_valid[i] = false;
-      _cfg.group->multi_clear();
-      return qs;
-    }
-
-    _last_delta[i] = delta;
   }
 
-  const Status st = _cfg.group->multi_send();
   if (st != Status::OK)
   {
     return st;
   }
 
-  // 命令发出后到第一次读位置之间必须留间隔（BUS_GAP_MS，921600 下取 2 ms）。
-  // 控制命令**没有应答**，这段时间不是等应答，而是给驱动器解析 / 建档的时间；
-  // 紧接着发 0x36 会把还没处理完的 MMCL 顶掉，表现为“命令不执行”。
+  // 控制命令无应答：留 BUS_GAP_MS 给驱动器解析，期间不发查询
   _read_hold = xTaskGetTickCount() + pdMS_TO_TICKS(BUS_GAP_MS);
   _seg_tick  = xTaskGetTickCount();
 
-  // 记录本段预期：起点用当前实测，方向与行程由指令增量得到
-  for (size_t i = 0U; i < 2U; i++)
-  {
-    const int32_t delta = (i == 0U) ? delta1 : delta2;
-
-    _seg_from[i]   = _cur_counts[i];
-    _seg_dir[i]    = (delta > 0) ? 1 : ((delta < 0) ? -1 : 0);
-    _seg_travel[i] = static_cast<int32_t>(std::lround(std::fabs(static_cast<double>(delta)) * static_cast<double>(COUNTS_PER_PULSE)));
-  }
-
-  // 新的一段重新计到位确认拍数，并作废“上次读数”基准（下一拍只建档、不判稳）
+  // 新段重新计到位拍数，并作废“上次读数”基准（下一拍只建档、不判稳）
   _arrive_ok  = 0U;
   _prev_ok[0] = false;
   _prev_ok[1] = false;

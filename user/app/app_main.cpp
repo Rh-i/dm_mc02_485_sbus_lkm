@@ -20,9 +20,6 @@
 /* 任务声明 */
 #include "app_task.hpp"
 
-/* CoreXY 任务间命令队列 */
-#include "corexy_protocol.hpp"
-
 
 /**
  * @brief FreeRTOS后的相关初始化
@@ -57,15 +54,21 @@ void app_init(void)
   /* 按键任务：200 ms 轮询（短按/长按发不同提示音，优先级 +5） */
   configASSERT(xTaskCreate(key_task, "key", 256, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
 
-  /* CoreXY：输入源二选一（都占 USART1），执行侧统一走 corexy_io_task */
-  configASSERT(corexy_cmd_init());
+  /* CoreXY：执行侧一个任务；收包口与遥控按 cxy_link 的开关各建一个任务 */
   configASSERT(xTaskCreate(corexy_io_task, "cxy_io", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
 
-#if APP_COREXY_PROTOCOL
-  configASSERT(xTaskCreate(corexy_task, "cxy_pro", 512, NULL, tskIDLE_PRIORITY + 4, NULL) == pdPASS);
-#else
-  configASSERT(xTaskCreate(corexy_console_task, "cxy_con", 512, NULL, tskIDLE_PRIORITY + 4, NULL) == pdPASS);
-#endif
+  // 收包任务按端口绑定创建；是否解析由运行期的 corexy_link.set_enabled() 决定
+  if (corexy_link.console_port() != nullptr)
+  {
+    configASSERT(xTaskCreate(corexy_rx_console, "cxy_con", 256, NULL, tskIDLE_PRIORITY + 4, NULL) == pdPASS);
+  }
+
+  if (corexy_link.binary_port() != nullptr)
+  {
+    configASSERT(xTaskCreate(corexy_rx_binary, "cxy_bin", 256, NULL, tskIDLE_PRIORITY + 4, NULL) == pdPASS);
+  }
+
+  configASSERT(xTaskCreate(remote_ctrl_task, "cxy_rc", 256, NULL, tskIDLE_PRIORITY + 4, NULL) == pdPASS);
 
 }
 

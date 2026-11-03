@@ -15,6 +15,7 @@
 #define __MODULE_CFG_HPP__
 
 #include "corexy.hpp"
+#include "corexy_link.hpp"
 #include "board_cfg.hpp"
 
 
@@ -36,6 +37,9 @@ using CorexyModule = CorexyT<decltype(emm_group)>;
 
 /// CoreXY 平面机构：emm_group 上的地址 1、2，理论限位 190×200，安全限位 (1,1)~(189,199)
 extern CorexyModule corexy;
+
+/// CoreXY 三源入口：终端 bsp_uart1 / 二进制 bsp_uart7 / 遥控（app 任务直调）
+extern CorexyLink corexy_link;
 
 /* ==================== */
 #endif // __MODULE_CFG_HPP__

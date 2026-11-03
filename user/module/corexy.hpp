@@ -76,20 +76,6 @@ public:
   };
 
   /**
-   * @brief 分段下发模式
-   *
-   * @note `Position` 每段发 `addr FD …`（13 B，方向/速度/加速度/脉冲一帧到底）；
-   *       `Quick` 先用 `addr F1 …` 设一次参数，之后每段只发 `addr FC 脉冲(4B)`（7 B）。
-   * @note Quick 帧更短（两轴 19 B 对 31 B），代价是改速度要重发参数帧，且 `0xFC`
-   *       没有方向字节、靠脉冲符号定向（换固件需实机确认符号约定）。
-   */
-  enum class MoveMode : uint8_t
-  {
-    Position, ///< 0xFD 完整位置帧（默认，最稳）
-    Quick     ///< 0xF1 参数 + 0xFC 快速位置
-  };
-
-  /**
    * @brief 模块配置（电机组 / 地址 / 两块限位必填，其余可省略）
    *
    * @note `theory` = 机械真实行程，只在运动中拿实测坐标比，越界判碰撞并停机；
@@ -107,7 +93,6 @@ public:
     uint16_t  rpm        = 300U;     ///< 基准速度 RPM（按每圈行程换算成 mm/s）
     uint8_t   acc        = 230U;     ///< 加速度参数（0~255，越大加速越快，0 = 直接启动）
     float     arrive_tol = 0.20f;    ///< 到位窗口 mm
-    MoveMode  move_mode  = MoveMode::Position; ///< 分段下发模式
   };
 
   /* ==================== */
@@ -194,15 +179,6 @@ public:
   Status set_speed(uint16_t rpm, uint8_t acc);
 
   /**
-   * @brief 切换分段下发模式（位置 / 快速位置）
-   * @param mode 目标模式
-   * @return OK / BUSY（正在走分段，改模式会让两台参数与指令不一致）/ NOT_INIT
-   *
-   * @note 切到 `Quick` 后，下一段自动补发一次 `0xF1` 参数帧再发 `0xFC`。
-   */
-  Status set_move_mode(MoveMode mode);
-
-  /**
    * @brief 周期更新：收串口字节、读两台位置、推进状态机
    * @param timeout_ms 等新字节的时间，0 = 非阻塞；只作用于「等字节」，状态机推进不额外等
    * @note 必须由**同一任务**调用、不能在中断里调：内部会静默 `BUS_GAP_MS` 发帧并等应答
@@ -247,12 +223,6 @@ public:
   bool origin_verified() const
   {
     return _armed;
-  }
-
-  ///< 当前分段下发模式
-  MoveMode move_mode() const
-  {
-    return _cfg.move_mode;
   }
 
   ///< 原始反馈 counts（0 = 电机 1，1 = 电机 2）；诊断用，没新应答就不变
@@ -392,6 +362,7 @@ private:
 
   TickType_t _seg_tick  = 0; ///< 本段命令发出的时刻（算 SEG_DONE_MS 兜底用）
   TickType_t _read_hold = 0; ///< 此之前不读位置：给驱动器留出处理命令 / 回完应答的时间
+  bool       _seg_retried = false; ///< 本段超时后是否已补发过一次（只补一次，再不行就 Fault）
 
   // 快速位置模式：驱动器里当前生效的参数（避免每段都重发 0xF1）
   bool     _quick_valid[2] = {false, false}; ///< 该台的 0xF1 参数是否已下发

@@ -16,11 +16,12 @@ CorexyT<decltype(emm_group)> corexy({
   .addr2      = 2U,
   .theory     = {0.0f, 0.0f, 190.0f, 200.0f},
   .safe       = {2.0f, 2.0f, 188.0f, 198.0f},
-  .rpm        = 300U,
-  .acc        = 230U,
+  .rpm        = 500U,
+  .acc        = 250U,
   .arrive_tol = 0.20f,
 });
-
+// 三源入口：终端走 USART1（与打印同口），二进制走 UART7（921600）
+CorexyLink corexy_link({.console = &bsp_uart1, .binary = &bsp_uart7});
 
 /* ==================== */
 /* ==================== 函数定义 ==================== */
@@ -30,6 +31,7 @@ CorexyT<decltype(emm_group)> corexy({
 void module_init(void)
 {
   configASSERT(corexy.init() == Status::OK);
+  configASSERT(corexy_link.init() == Status::OK);
 }
 
 /* ==================== */

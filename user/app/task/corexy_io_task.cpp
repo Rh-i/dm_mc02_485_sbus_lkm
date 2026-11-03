@@ -1,21 +1,17 @@
 /**
  * @file corexy_io_task.cpp
  * @author Rh
- * @brief CoreXY 执行任务：独占电机总线，执行队列命令并回帧
- * @version 3.1
- * @date 2026-10-23
- *
- * @copyright Copyright (c) 2026
+ * @brief CoreXY 执行任务：独占电机总线，执行队列命令并按来源上报
  *
  * @note 上电：清零 → 使能 → 复核原点 → 上报 BOOT；之后取队列命令执行，再 10 ms 推一拍状态机。
- *       上报方式跟随 `APP_COREXY_PROTOCOL`：1 = 二进制应答/事件帧，0 = 终端打印一行。
- *       帧格式与命令表见 `corexy_protocol.hpp`、`corexy.md` §6。
+ * @note 上报格式由 `corexy_link` 按命令来源决定（终端 / 二进制 / 遥控不回）。
+ * @note 切源与活动源超时都在这里统一处理：先 `stop()` 再继续，避免两台抢命令。
  */
 
 #include "app_task.hpp"
 
-#include "board_cfg.hpp" // bsp_uart1（命令码模式打印）
-#include "corexy_protocol.hpp"
+#include "board_cfg.hpp" // emm_group（诊断命令用）
+#include "corexy_link.hpp"
 #include "module_cfg.hpp"
 #include "system.hpp"
 
@@ -27,96 +23,102 @@
 
 namespace
 {
-///< 上报执行结果：协议模式发应答帧，命令码模式打印一行
-void ans(const CorexyCmd &cmd, Status st)
-{
-#if APP_COREXY_PROTOCOL
-  const CorexyModule::Point p = corexy.position();
-  cxy::reply(static_cast<uint8_t>(cmd.type), st, p.x, p.y);
-#else
-  bsp_uart1.printf("[CXY] cmd 0x%02X -> st=%u\r\n", static_cast<unsigned>(cmd.type), static_cast<unsigned>(st));
-#endif
-}
+///< 事件码（与二进制协议一致）
+constexpr uint8_t EVT_BOOT  = 0x01U;
+constexpr uint8_t EVT_DONE  = 0x02U;
+constexpr uint8_t EVT_FAULT = 0x03U;
 
-
-///< 上报事件：协议模式发事件帧，命令码模式打印一行
-void evt(uint8_t code, Status st)
+///< 位置与状态一行（终端用）
+void print_status()
 {
   const CorexyModule::Point p = corexy.position();
 
-#if APP_COREXY_PROTOCOL
-  cxy::event(code, st, p.x, p.y);
-#else
-  bsp_uart1.printf("[CXY] %s st=%u pos=(%.2f, %.2f)\r\n",
-                   (code == cxy::BOOT) ? "boot" : ((code == cxy::DONE) ? "done" : "fault"),
-                   static_cast<unsigned>(st), p.x, p.y);
-#endif
+  corexy_link.console_port()->printf("[CXY] pos=(%.2f, %.2f) c1=%ld c2=%ld state=%u seg=%u/%u err=%u origin=%u\r\n", p.x, p.y,
+                                     static_cast<long>(corexy.raw_counts(0U)), static_cast<long>(corexy.raw_counts(1U)),
+                                     static_cast<unsigned>(corexy.state()), static_cast<unsigned>(corexy.segment_index()),
+                                     static_cast<unsigned>(corexy.segment_count()), static_cast<unsigned>(corexy.last_error()),
+                                     corexy.origin_verified() ? 1U : 0U);
 }
 
+///< 最近一帧下发内容与两台在线状态（诊断“命令到底发出去没”）
+void print_dump()
+{
+  size_t         len = 0U;
+  const uint8_t *f   = emm_group.last_multi_frame(len);
+
+  corexy_link.console_port()->printf("[CXY] mmcl(%u):", static_cast<unsigned>(len));
+
+  for (size_t i = 0U; i < len; i++)
+  {
+    corexy_link.console_port()->printf(" %02X", f[i]);
+  }
+
+  corexy_link.console_port()->printf("\r\n[CXY] online 1=%u 2=%u\r\n", emm_group.is_online(1U) ? 1U : 0U,
+                                     emm_group.is_online(2U) ? 1U : 0U);
+}
 
 ///< 执行一条命令
-void run(const CorexyCmd &cmd)
+void run(const CxyCmd &cmd)
 {
   Status st = Status::OK;
 
   switch (cmd.type)
   {
-    case CorexyCmdType::Enable:
+    case CxyCmd::Type::Enable:
       st = corexy.enable(cmd.p0 != 0); // 静默 + 两台 + 帧间隔都在模块里
       break;
 
-    case CorexyCmdType::MoveAbs:
+    case CxyCmd::Type::MoveAbs:
       st = corexy.move_to(CorexyModule::Point(cmd.a, cmd.b));
       break;
 
-    case CorexyCmdType::MoveRel:
+    case CxyCmd::Type::MoveRel:
       st = corexy.move_by(CorexyModule::Point(cmd.a, cmd.b));
       break;
 
-    case CorexyCmdType::Zero:
+    case CxyCmd::Type::Zero:
       st = corexy.zero_here();
       break;
 
-    case CorexyCmdType::Stop:
+    case CxyCmd::Type::Stop:
       st = corexy.stop();
       break;
 
-    case CorexyCmdType::SetSpeed:
+    case CxyCmd::Type::SetSpeed:
       st = corexy.set_speed(static_cast<uint16_t>(cmd.p0), static_cast<uint8_t>(cmd.p1));
       break;
 
-    case CorexyCmdType::QuickParam:
-      // 单电机诊断帧：直接发（模块不再对外提供 quiet()，只在空闲时用它们）
-      st = emm_group.set_quick_position_params(cmd.addr, static_cast<uint16_t>(cmd.p0), static_cast<uint8_t>(cmd.p1), (cmd.mode != 0U) ? emmv5::PositionMode::Absolute : emmv5::PositionMode::Relative);
+    case CxyCmd::Type::QuickParam:
+      // 单电机诊断帧：绕过模块直发驱动器
+      st = emm_group.set_quick_position_params(cmd.addr, static_cast<uint16_t>(cmd.p0), static_cast<uint8_t>(cmd.p1),
+                                               (cmd.mode != 0U) ? emmv5::PositionMode::Absolute : emmv5::PositionMode::Relative);
       break;
 
-    case CorexyCmdType::QuickPos:
+    case CxyCmd::Type::QuickPos:
       st = emm_group.set_quick_position(cmd.addr, cmd.p0);
       break;
 
-    case CorexyCmdType::MoveMode:
-      st = corexy.set_move_mode((cmd.p0 == 0) ? CorexyModule::MoveMode::Position
-                                              : CorexyModule::MoveMode::Quick);
-      break;
-
-    case CorexyCmdType::Limits:
+    case CxyCmd::Type::Limits:
     {
-      const CorexyModule::Rect th = corexy.limits_theory();
-      const CorexyModule::Rect sf = corexy.limits_safe();
-
-#if APP_COREXY_PROTOCOL
-      const float t[4] = {th.x0, th.y0, th.x1, th.y1};
-      const float s[4] = {sf.x0, sf.y0, sf.x1, sf.y1};
-      cxy::reply_limits(Status::OK, t, s);
-#else
-      bsp_uart1.printf("[CXY] theory=(%.2f,%.2f)-(%.2f,%.2f) safe=(%.2f,%.2f)-(%.2f,%.2f)\r\n",
-                       th.x0, th.y0, th.x1, th.y1, sf.x0, sf.y0, sf.x1, sf.y1);
-#endif
+      const CorexyModule::Rect th    = corexy.limits_theory();
+      const CorexyModule::Rect sf    = corexy.limits_safe();
+      const float              t[4]  = {th.x0, th.y0, th.x1, th.y1};
+      const float              s[4]  = {sf.x0, sf.y0, sf.x1, sf.y1};
+      corexy_link.reply_limits(Status::OK, t, s);
       return;
     }
+
+    case CxyCmd::Type::Status:
+      print_status();
+      return;
+
+    case CxyCmd::Type::Dump:
+      print_dump();
+      return;
   }
 
-  ans(cmd, st);
+  const CorexyModule::Point p = corexy.position();
+  corexy_link.reply(cmd, st, p.x, p.y);
 }
 
 } // namespace
@@ -137,24 +139,29 @@ extern "C" void corexy_io_task(void *argument)
     corexy.update(10U);
   }
 
-  {
-    const CorexyModule::Point p = corexy.position();
+  corexy_link.event(EVT_BOOT, corexy.origin_verified() ? Status::OK : Status::NOT_INIT, corexy.position().x, corexy.position().y);
 
-#if APP_COREXY_PROTOCOL
-    cxy::event(cxy::BOOT, corexy.origin_verified() ? Status::OK : Status::NOT_INIT, p.x, p.y);
-#else
-    bsp_uart1.printf("[CXY] boot st=%u pos=(%.2f, %.2f)\r\n",
-                     static_cast<unsigned>(corexy.origin_verified() ? Status::OK : Status::NOT_INIT), p.x, p.y);
-#endif
-  }
-
-  CorexyModule::State last = corexy.state();
+  CxySource           last_src = corexy_link.active();
+  CorexyModule::State last     = corexy.state();
 
   for (;;)
   {
-    CorexyCmd cmd;
+    // 切源：旧源的运动不能继续；超时：活动源没新指令就停（0 = 关闭）
+    if (corexy_link.active() != last_src)
+    {
+      (void)corexy.stop();
+      last_src = corexy_link.active();
+    }
 
-    while (xQueueReceive(corexy_cmd_queue, &cmd, 0) == pdPASS)
+    if (corexy_link.timed_out())
+    {
+      (void)corexy.stop();
+      corexy_link.reset_timeout();
+    }
+
+    CxyCmd cmd;
+
+    while (corexy_link.take(cmd))
     {
       run(cmd);
     }
@@ -165,13 +172,15 @@ extern "C" void corexy_io_task(void *argument)
 
     if (now != last)
     {
+      const CorexyModule::Point p = corexy.position();
+
       if (now == CorexyModule::State::Fault)
       {
-        evt(cxy::FAULT, corexy.last_error());
+        corexy_link.event(EVT_FAULT, corexy.last_error(), p.x, p.y);
       }
       else if ((now == CorexyModule::State::Idle) && (last == CorexyModule::State::Moving))
       {
-        evt(cxy::DONE, Status::OK);
+        corexy_link.event(EVT_DONE, Status::OK, p.x, p.y);
       }
 
       last = now;
